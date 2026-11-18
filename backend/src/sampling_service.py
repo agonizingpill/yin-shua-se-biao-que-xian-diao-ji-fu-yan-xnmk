@@ -20,7 +20,10 @@ def sample(s,p,u,r):
     plate=require_ready(s,job.id)
     from .inspection_service import ready
     from .paper_service import sample_guard
-    ready(s,job.id);sample_guard(s,job.id,p.quantity)
+    insp=ready(s,job.id)
+    from .handover_service import guard_occupancy
+    guard_occupancy(s,job,insp.machine_id,allow_target=False)
+    sample_guard(s,job.id,p.quantity)
     if s.scalar(select(PressSample).where(PressSample.job_id==job.id,PressSample.state=='classifying')):raise HTTPException(409,'上一张量产抽检尚在判读，请等待结果')
     last=s.scalar(select(func.max(PressSample.sequence)).where(PressSample.job_id==job.id)) or 0
     if p.sequence<=last:raise HTTPException(409,'抽检序号须递增，不得重复或倒序')
@@ -42,6 +45,8 @@ def recheck(s,key,p,u,r):
     current=get(s,PressHold,key)
     job=s.scalar(select(PrintJob).where(PrintJob.id==current.job_id).with_for_update())
     hold=s.scalar(select(PressHold).where(PressHold.id==key).with_for_update())
+    from .handover_service import guard_not_suspended
+    guard_not_suspended(s,job.id)
     if hold.state!='active' or job.status!='hold':raise HTTPException(409,'仅活动停机单可以登记复机复验')
     if p.job_id!=job.id:raise HTTPException(409,'复机色标必须来自停机单同一工单')
     if hold.reproof_id and get(s,ProofSheet,hold.reproof_id).classification_state=='classifying':raise HTTPException(409,'上一张复验仍在判读，请等待')
@@ -51,6 +56,8 @@ def recheck(s,key,p,u,r):
 
 def close(s,key,p,u):
     current=get(s,PressHold,key);job=s.scalar(select(PrintJob).where(PrintJob.id==current.job_id).with_for_update());hold=s.scalar(select(PressHold).where(PressHold.id==key).with_for_update())
+    from .handover_service import guard_not_suspended
+    guard_not_suspended(s,job.id)
     if hold.state!='active' or job.status!='hold':raise HTTPException(409,'停机单已关闭，不能重复复机')
     require_ready(s,job.id)
     if not hold.reproof_id:raise HTTPException(409,'须登记停机后的新色标复验')

@@ -24,3 +24,12 @@ class HoldClose(Inputs):
     def reason(cls,v):
         if len(v.strip())<5:raise ValueError('处置依据至少5字')
         return v.strip()
+class HandoverInput(Inputs):
+    machine_id:int
+    to_job_id:int
+    from_job_id:int|None=None
+    note:str=Field(default='',max_length=300)
+class WithdrawInput(Inputs):
+    note:str=Field(default='',max_length=300)
+class OccupancyConfirm(Inputs):
+    job_id:int

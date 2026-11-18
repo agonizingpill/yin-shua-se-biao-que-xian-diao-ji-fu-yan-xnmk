@@ -1,4 +1,4 @@
-from sqlalchemy import String,Float,ForeignKey,JSON,UniqueConstraint,CheckConstraint
+from sqlalchemy import String,Float,Boolean,ForeignKey,JSON,UniqueConstraint,CheckConstraint
 from sqlalchemy.orm import Mapped,mapped_column
 from .db import Base
 class PlateSet(Base):
@@ -35,3 +35,30 @@ class PressHold(Base):
     resolution:Mapped[str]=mapped_column(String(500),default='')
     closed_by:Mapped[str]=mapped_column(String(100),default='')
     closed_at:Mapped[str|None]=mapped_column(String(40),nullable=True)
+class MachineOccupancy(Base):
+    __tablename__='machine_occupancies'
+    id:Mapped[int]=mapped_column(primary_key=True)
+    machine_id:Mapped[int]=mapped_column(ForeignKey('press_machines.id'),unique=True)
+    job_id:Mapped[int]=mapped_column(ForeignKey('print_jobs.id'))
+    source:Mapped[str]=mapped_column(String(24),default='auto')
+    acquired_at:Mapped[str]=mapped_column(String(40))
+    updated_at:Mapped[str]=mapped_column(String(40))
+class PressHandover(Base):
+    __tablename__='press_handovers'
+    id:Mapped[int]=mapped_column(primary_key=True)
+    machine_id:Mapped[int]=mapped_column(ForeignKey('press_machines.id'))
+    from_job_id:Mapped[int|None]=mapped_column(ForeignKey('print_jobs.id'),nullable=True)
+    to_job_id:Mapped[int]=mapped_column(ForeignKey('print_jobs.id'))
+    state:Mapped[str]=mapped_column(String(24),default='initiated')
+    note:Mapped[str]=mapped_column(String(300),default='')
+    initiated_by:Mapped[str]=mapped_column(String(100))
+    initiated_at:Mapped[str]=mapped_column(String(40))
+    old_job_status:Mapped[str]=mapped_column(String(20),default='')
+    old_job_defect:Mapped[bool|None]=mapped_column(Boolean,nullable=True)
+    baseline_inspection_id:Mapped[int]=mapped_column(default=0)
+    first_proof_id:Mapped[int|None]=mapped_column(ForeignKey('proof_sheets.id'),nullable=True)
+    completed_by:Mapped[str|None]=mapped_column(String(100),nullable=True)
+    completed_at:Mapped[str|None]=mapped_column(String(40),nullable=True)
+    withdrawn_by:Mapped[str|None]=mapped_column(String(100),nullable=True)
+    withdrawn_at:Mapped[str|None]=mapped_column(String(40),nullable=True)
+    withdraw_note:Mapped[str]=mapped_column(String(300),default='')

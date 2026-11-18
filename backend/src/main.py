@@ -13,9 +13,10 @@ from .services import get,pack,audit,editable_proof,issue,change_instruction,sig
 from .middlewares import RequestTrace,BurstGuard
 from .production_routes import router as production
 from .dispatch_routes import router as dispatches
+from .handover_routes import router as handovers
 from .plate_service import require_ready
 from .paper_service import locked
-from .constants import ROLES,DEFECTS,JOB_STATES,ADJUSTMENT_STATES
+from .constants import ROLES,DEFECTS,JOB_STATES,ADJUSTMENT_STATES,HANDOVER_STATES
 r=redis.Redis.from_url(os.environ['REDIS_URL'],decode_responses=True)
 @asynccontextmanager
 async def lifespan(app):
@@ -29,7 +30,7 @@ async def lifespan(app):
 app=FastAPI(title='铅叶 · 色标缺陷与调机复验',lifespan=lifespan);app.add_middleware(RequestTrace);app.add_middleware(BurstGuard)
 @app.exception_handler(IntegrityError)
 async def conflict(req,exc):return JSONResponse({'detail':'工单、色标编号或首张调机指令重复，请核对'},409)
-app.include_router(production);app.include_router(dispatches)
+app.include_router(production);app.include_router(dispatches);app.include_router(handovers)
 @app.get('/health')
 def health(s=Depends(db_session)):s.execute(select(1));r.ping();return {'status':'ok'}
 @app.post('/auth/login')
@@ -40,7 +41,7 @@ def login(p:Login,s=Depends(db_session)):
 @app.get('/me')
 def me(u=Depends(current)):return {'email':u.email,'role':u.role}
 @app.get('/enums')
-def enums(u=Depends(current)):return {'roles':ROLES,'defects':DEFECTS,'job_states':JOB_STATES,'adjustment_states':ADJUSTMENT_STATES}
+def enums(u=Depends(current)):return {'roles':ROLES,'defects':DEFECTS,'job_states':JOB_STATES,'adjustment_states':ADJUSTMENT_STATES,'handover_states':HANDOVER_STATES}
 @app.get('/jobs')
 def jobs(s=Depends(db_session),u=Depends(current)):return [pack(x)for x in s.scalars(select(PrintJob).order_by(PrintJob.id))]
 @app.post('/jobs')
@@ -59,7 +60,9 @@ def proofs(s=Depends(db_session),u=Depends(current)):return [pack(x)for x in s.s
 @app.post('/proofs')
 def add_proof(p:ProofInput,s=Depends(db_session),u=Depends(writers)):
     j=get(s,PrintJob,p.job_id)
-    if j.status in ['production','hold']:raise HTTPException(409,'量产或停机工单请通过量产抽检/停机复验录入新色标')
+    from .handover_service import guard_not_suspended,is_handover_target
+    guard_not_suspended(s,j.id)
+    if j.status in ['production','hold'] and not is_handover_target(s,j.id):raise HTTPException(409,'量产或停机工单请通过量产抽检/停机复验录入新色标')
     x=ProofSheet(**p.model_dump());s.add(x);audit(s,u,'登记色标 '+p.code);s.commit();return pack(x)
 @app.put('/proofs/{pid}')
 def edit_proof(pid:int,p:ProofInput,s=Depends(db_session),u=Depends(writers)):
@@ -85,6 +88,8 @@ def patch_instruction(aid:int,p:InstructionInput,s=Depends(db_session),u=Depends
 def execute(aid:int,s=Depends(db_session),u=Depends(writers)):
     x=s.query(Adjustment).filter_by(id=aid).with_for_update().one_or_none()
     if not x:raise HTTPException(404,'调机指令不存在')
+    from .handover_service import guard_not_suspended
+    guard_not_suspended(s,x.job_id)
     if x.status!='issued':raise HTTPException(409,'仅待执行指令可登记执行')
     s.query(PrintJob).filter_by(id=x.job_id).with_for_update().one()
     require_ready(s,x.job_id)
